@@ -1,0 +1,457 @@
+<!DOCTYPE HTML>
+<html>
+    <head>
+        <link rel="Stylesheet" type="text/css" href="/static/css/typo.css">
+        <link rel="Stylesheet" type="text/css" href="/static/css/reset_typo.css">
+        <link rel="Stylesheet" type="text/css" href="/static/css/tango.css">
+        <link rel="Stylesheet" type="text/css" href="/static/css/style.css">
+        <title>逆向工程核心原理のPE文件格式 - Ender | Wiki</title>
+        <meta name="keywords" content="wiki, Linux"/>
+        <meta name="description" content=""/>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        
+<script src="http://apps.bdimg.com/libs/jquery/2.1.4/jquery.js"></script>
+<script language="javascript" type="text/javascript">
+    var oddClick = true;
+    $(document).ready(function() {
+      $('#toggle-button').click(function() {
+        $('#container').animate({
+          width: oddClick? "100%":"60%",
+        });
+        $(this).text(oddClick? "窄版":"宽版");
+        oddClick = !oddClick;
+      });
+    });
+</script>
+
+    </head>
+
+    <body>
+        <div id="container" class="typo">
+            
+    <div id="header">
+        <div id="post-nav">
+            <div id="toggle-button">宽版</div>
+            
+            <a href="/">Home</a> » <a href="/#Reverse">Reverse</a> » 逆向工程核心原理のPE文件格式
+            
+        </div>
+    </div>
+    <div class="clearfix"></div>
+    <div id="content">
+        <div class="toc"><span class="toctitle">Table of Contents</span><ul>
+<li><a href="#va-rva">VA &amp; RVA</a></li>
+<li><a href="#header">Header</a><ul>
+<li><a href="#0x01-dos">0x01 DOS头</a></li>
+<li><a href="#0x02-dosstub">0x02 DOS存根（stub）</a></li>
+<li><a href="#0x03-ntimage_nt_headers">0x03 NT头（IMAGE_NT_HEADERS）</a></li>
+<li><a href="#_1">节区头</a></li>
+</ul>
+</li>
+<li><a href="#rva-to-raw">RVA to RAW</a></li>
+</ul>
+</div>
+<p>本文摘录于：《逆向工程核心原理》</p>
+<p>PE -&gt; Portable Executable  (<strong>未完待续</strong>) </p>
+<p>PE文件是Windows操作系统下使用的可执行文件格式。
+它是微软在UNIX平台的COFF(common object file format, 通用对象文件格式)基础上制作而成的。这种文件仅使用于Win系列下。
+PE文件是指32位的可执行文件，也称PE32, 64位的可执行文件称为PE+或PE32+, 是PE(PE32)文件的一种扩展形式。</p>
+<table>
+<thead>
+<tr>
+<th>种类</th>
+<th>主扩展名</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>可执行系列</td>
+<td>EXE、SCR</td>
+</tr>
+<tr>
+<td>库系列</td>
+<td>DLL、OCX、CPL、DRV</td>
+</tr>
+<tr>
+<td>驱动程序系列</td>
+<td>SYS、VXD</td>
+</tr>
+<tr>
+<td>对象文件系列</td>
+<td>OBJ</td>
+</tr>
+</tbody>
+</table>
+<p>严格来说，OBJ文件之外的所有文件都是可执行的。DLL，SYS文件不能在Shell(Explorer.exe)中运行，但也可以在调试或者服务中运行。</p>
+<p>学习PE文件格式就是学习PE头中的结构体。
+从DOS头(DOS header)到节区头(Section header)是PE头部分，其他节区合称PE体。文件中使用偏移(offest)，内存中使用VA(virtual address)来表示位置。文件加载到内存时，情况就会发生变化(节区的大小、位置等)。文件的内容可分为代码(.text)、数据(.data)、资源(.rsrc)节，分别保存。</p>
+<p>注意：根据不同的开发工具与编译选项，节区名称、大小、个数、存储内容等都是不同的。
+各个节区头定义了各节区在文件或内存中的大小、位置、属性等。
+PE头与各节区的尾部存在一个区域，称为NULL填充</p>
+<p>文件偏移<br>
+00000000-----{ DOS头 <br>
+00000004-----{ DOS存根<br>
+000000E0-----{ NT头<br>
+000001D8-----{ 节区头(".text")<br>
+00000200-----{ 节区头(".data")<br>
+00000228-----{ 节区头(".rsrc")<br>
+|-----{ NULL<br>
+00000400-----{ 节区(".text") size = 7800<br>
+|-----{ NULL<br>
+00007C00-----{ 节区(".data") size = 800<br>
+|-----{ NULL<br>
+00008400-----{ 节区(".rsrc") size = 8400<br>
+|-----{ NULL<br></p>
+<p>然后上述文件加载到内存中后只有节区大小和全部位置都发生了变化，比如说内存中起始位置是01000000</p>
+<h2 id="va-rva">VA &amp; RVA</h2>
+<p>RVA -&gt; relative virtual address，相对虚拟地址，指的是从某个基准位置(ImageBase)开始的相对地址，RVA + ImageBase = VA</p>
+<p>PE头内部信息大多以RVA形式存在，原因：PE文件（主要是DLL）加载到进程虚拟内存的特定位置时，需要重定位(Relocation)</p>
+<p>注意：32bit WindowsOS中各进程分配有4GB的虚拟内存，因此<strong>进程中VA值的范围是00000000~FFFFFFFF</strong></p>
+<h2 id="header">Header</h2>
+<h4 id="0x01-dos">0x01 DOS头</h4>
+<p>IMAGE_<strong>DOS_HEADER</strong>结构体是为了让PE文件对DOS文件兼容。它被添加到PE头的最前面，用来扩展已有的DOS EXE头</p>
+<div class="hlcode"><pre><span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_DOS_HEADER</span> <span class="p">{</span>
+    <span class="n">WORD</span> <span class="n">e_magic</span><span class="p">;</span>     <span class="c1">// DOS signature : 4D5A(&quot;MZ&quot;)</span>
+    <span class="n">WORD</span> <span class="n">e_cblp</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_cp</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_crlc</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_cparhdr</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_minalloc</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_maxalloc</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_ss</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_sp</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_csum</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_ip</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_cs</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_lfarlc</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_ovno</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_res</span><span class="p">[</span><span class="mi">4</span><span class="p">];</span>   <span class="c1">// 8bytes</span>
+    <span class="n">WORD</span> <span class="n">e_oemid</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_oeminfo</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">e_res2</span><span class="p">[</span><span class="mi">10</span><span class="p">];</span> <span class="c1">// 20bytes</span>
+    <span class="n">LONG</span> <span class="n">e_lfanew</span><span class="p">;</span>   <span class="c1">// offset to NT header</span>
+<span class="p">}</span> <span class="n">IMAGE_DOS_HEADER</span><span class="p">,</span> <span class="o">*</span><span class="n">PIMAGE_DOS_HEADER</span><span class="p">;</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+<span class="c1">// IMAGE_DOS_HEADER结构体的大小为0x40(64)字节。</span>
+</pre></div>
+
+
+<p>该结构体必须知道2个重要的成员：</p>
+<p>e_magic（DOS签名）,e_lfanew（指示NT头的偏移（根据不同文件拥有可变值））</p>
+<p>|Offset(h)| 00 | 01 | 02 | 03 | 04 05 06...........0F|<br>
+00000000    4D | 5A | 90 |</p>
+<h4 id="0x02-dosstub">0x02 DOS存根（stub）</h4>
+<p>该项为可选项，且大小不固定，它是由代码和数据混合而成。</p>
+<p>文件偏移在40-4D区域为16位汇编指令，32位WindowsOS不会执行该指令（由于已经识别为PE文件，所以完全忽视该代码）</p>
+<p>在DOS环境下运行EXE文件或者使用debug.exe（仅适用于WinXP环境）运行，
+<code>debug xxx.exe</code></p>
+<p>按下u(unassemble)会出现16位的汇编指令。
+可使其执行该代码（不认识PE文件格式所以被识别为DOS EXE）。
+灵活使用该特性可以在一个可执行文件内创建出另外一个，它在DOS与Windows中都能运行（DOS是16位代码）。</p>
+<h4 id="0x03-ntimage_nt_headers">0x03 NT头（IMAGE_NT_HEADERS）</h4>
+<div class="hlcode"><pre><span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_NT_HEADERS</span> <span class="p">{</span>
+    <span class="n">DWORD</span> <span class="n">Signature</span><span class="p">;</span>     <span class="c1">// PE Signature : 50450000(&quot;PE&quot;00)</span>
+    <span class="n">IMAGE_FILE_HEADER</span> <span class="n">FileHeader</span><span class="p">;</span>
+    <span class="n">IMAGE_OPTIONAL_HEADER32</span> <span class="n">OptionalHeader</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">IMAGE_NT_HEADERS32</span><span class="p">,</span> <span class="o">*</span><span class="n">PIMAGE_NT_HEADERS32</span><span class="p">;</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<p>NT头大小为<em>0XF8</em>,大致由三个成员构成：</p>
+<p>第一个成员为签名占四个字节，另外两个成员为文件头(File_header)与可选头(Optional_header)结构体</p>
+<p>——————————<br>
+|<br>
+|<br>
+\.....文件头：<br></p>
+<div class="hlcode"><pre><span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_FILE_HEADER</span> <span class="p">{</span>
+    <span class="n">WORD</span> <span class="n">Machine</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">NumberOfSections</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">TimeDataStamp</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">PointerToSymbolTable</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">NumberOfSymbols</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">SizeOfOptionalHeader</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">Characteristics</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">IMAGE_FILE_HEADER</span><span class="p">,</span> <span class="o">*</span><span class="n">PIMAGE_FILE_HEADER</span><span class="p">;</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<p>该结构体中有如下4种重要成员</p>
+<ul>
+<li>Machine</li>
+</ul>
+<p>每个CPU都有唯一的Machine码，兼容32位Intel x86芯片的Machine码为14C。</p>
+<p>以下是定义在winnt.h文件中的Machine码：</p>
+<div class="hlcode"><pre><span class="cp">#define IMAGE_FILE_MACHINE_UNKNOWN   0</span>
+<span class="cp">#define IMAGE_FILE_MACHINE_I386      0x014c </span><span class="c1">//Intel 386.</span>
+<span class="cp">#define IMAGE_FILE_MACHINE_R3000     0x0162 </span><span class="c1">//MIPS little-endian, 0x160big-endian</span>
+<span class="cp">#define IMAGE_FILE_MACHINE_R4000     0x0166 </span><span class="c1">//MIPS little-endian</span>
+<span class="cp">#define IMAGE_FILE_MACHINE_R10000    0x0168 </span><span class="c1">//MIPS little-endian</span>
+<span class="cp">#define IMAGE_FILE_MACHINE_WCEMIPSV2 0x0169 </span><span class="c1">//MIPS little-endian WCE v2</span>
+<span class="cp">#define IMAGE_FILE_MACHINE_ALPHA     0x0184 </span><span class="c1">//Alpha_AXP</span>
+<span class="c1">//.....</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<ul>
+<li>NumberOfSections</li>
+</ul>
+<p>PE文件把代码、数据、资源等依据属性分类到各节区中存储。</p>
+<p>这一项指示文件中存在的节区数量。该值一定要大于0，节区数与实际不符时时会发生运行错误。</p>
+<ul>
+<li>SizeOfOptionalHeader</li>
+</ul>
+<p>这一成员用来指出IMAGE_OPTIONAL_HEADER32结构体的长度，该结构体由C语言编写而成，故其大小已经确定，但是PE装载器需要查看IMAGE_FILE_HEADER的SizeOfOptionalHeader值，从而识别出来IMAGE_OPTIONAL_HEADER32结构体的大小。
+PE32+格式的文件中使用的是IMAGE_OPTIONAL_HEADER64结构体，而不是IMAGE_OPTIONAL_HEADER32结构体。两个结构体的尺寸是不同的，所以需要在SizeOfOptionalHeader成员中明确指出结构体的大小。</p>
+<p>提示：借助IMAGE_DOS_HEADER的e_lfanew成员与IMAGE_FILE_HEADER的SizeOfOptionalHeader成员，可以创建出一种脱离常规的PE文件(PE Patch)（也有人称之为“麻花”PE文件）</p>
+<ul>
+<li>Characteristics</li>
+</ul>
+<p>该字段用来标识文件的属性，文件是否是可运行状态，是否为DLL文件等信息。以bit OR形式组合起来。
+以下是定义在winnt.h文件中的Characteristics值(<strong>请记住0002h与2000h这两个值</strong>)</p>
+<div class="hlcode"><pre><span class="cp">#define IMAGE_FILE_RELOCS_STRIPPED     0x0001 </span><span class="c1">//Relocation info stripped from file.</span>
+<span class="cp">#define IMAEG_FILE_EXECUTABLE_IMAGE    0x0002 </span><span class="c1">//File is executable</span>
+<span class="cp">#define IMAGE_FILE_LINE_NUMS_STRIPPED  0x0004 </span><span class="c1">//Line numbers stripped from file.</span>
+<span class="c1">//......</span>
+<span class="cp">#define IMAGE_FILE_DLL                 0x2000 </span><span class="c1">//File is a DLL.</span>
+<span class="c1">//......</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<p>另外，PE文件中的Characteristics的值有可能不是0002h吗(不可执行)？是的，确实存在这种情况，比如类似*.obj的object文件及resource DLL文件等。</p>
+<p>IMAGE_FILE_HEADER的TimeDataStamp成员。该成员的值不影响文件运行，用来记录编辑器创建此文件的时间。</p>
+<p>——————————<br>
+|<br>
+|<br>
+\.....可选头：<br>
+IMAGE_OPTIONAL_HEADER32是PE头结构体中最大的。</p>
+<div class="hlcode"><pre><span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_DATA_DIRECTORY</span> <span class="p">{</span>
+    <span class="n">DWORD</span> <span class="n">VirtualAddress</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">Size</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">IMAGE_DATA_DIRECTORY</span><span class="p">,</span> <span class="o">*</span><span class="n">PIMAGE_DATA_DIRECTORY</span><span class="p">;</span>
+
+<span class="cp">#define IMAGE_NUMBEROF_DIRECTORY_ENTRIES  16</span>
+<span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_OPTIONAL_HEADER</span> <span class="p">{</span>
+    <span class="n">WORD</span> <span class="n">Magic</span><span class="p">;</span>
+    <span class="n">BYTE</span> <span class="n">MajorLinkerVersion</span><span class="p">;</span>
+    <span class="n">BYTE</span> <span class="n">MinorLinkerVersion</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfCode</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfInitializedData</span><span class="p">;</span>
+    <span class="n">DOWRD</span> <span class="n">SizeOfUninitializedData</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">AddressOfEntryPoint</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">BaseOfCode</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">BaseOfData</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">ImageBase</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SectionAlignment</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">FileAlignment</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">MajorOperatingSystemVersion</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">MinorOperatingSystemVersion</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">MajorImageVersion</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">MinorImageVersion</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">MajorSubsystemVersion</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">MinorSubsystemVersion</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">Win32VersionValue</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfImage</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfHeaders</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">CheckSum</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">Subsystem</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">DllCharacteristics</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfStackReserve</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfStackCommit</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfHeapReserve</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfHeapCommit</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">LoaderFlags</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">NumberOfRvaAndSizes</span><span class="p">;</span>
+    <span class="n">IMAGE_DATA_DIRECTORY</span> <span class="n">DataDirectory</span><span class="p">[</span><span class="n">IMAGE_NUMBEROF_DIRECTORY_ENTRIES</span><span class="p">];</span>
+<span class="p">}</span> <span class="n">IMAGE_OPTIONAL_HEADER32</span><span class="p">,</span> <span class="o">*</span><span class="n">PIMAGE_OPTIONAL_HEADER32</span><span class="p">;</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<p>在该结构体中我们需要注意如下成员(这些值是文件运行必需的，设置错误将导致文件无法正常运行):</p>
+<ol>
+<li>Magic</li>
+</ol>
+<p>为IMAGE_OPTIONAL_HEADER32结构体时，Magic码为10B；为IMAGE_OPTIONAL_HEADER64结构体时，Magic码为20B。</p>
+<ol>
+<li>AddressOfEntryPoint</li>
+</ol>
+<p>AddressOfEntryPoint持有EP的RVA值。该值指出了程序最先执行的代码起始地址，<strong>Very Important！！</strong></p>
+<ol>
+<li>ImageBase</li>
+</ol>
+<p>进程虚拟内存的范围为0~FFFFFFFF(32位系统)。PE文件被加载在如此大的内存中时，ImageBase指出文件的优先装入地址。</p>
+<p>EXE，DLL文件被装载到用户内存的0~7FFFFFFF中，SYS文件被载入到内核内存中80000000~FFFFFFFF。</p>
+<p>一般而言，使用开发工具(VB/VC++/Delphi)创建好EXE文件后，其ImageBase的值为00400000，DLL文件的ImageBase值为10000000(当然也可以指定为其他值)，执行PE文件时，PE装载器先创建进程，再将文件载入内存，然后把EIP寄存器的值设为ImageBase+AddressOfEntryPoint.</p>
+<ol>
+<li>SectionAlignment, FileAlignment</li>
+</ol>
+<p>PE文件的Body部分划分为若干节区，这些节存储着不同类别的数据。FileAlignment指定了节区在磁盘文件中的最小单位，而SectionAlignment则指定了节区在内存中的最小单位(一个文件中，FileAlignment与SectionAlignment的值可能相同，也可能不同)。磁盘文件或内存的节区大小必定为FileAlignment或SectionAlig
+nment值的整数倍。</p>
+<ol>
+<li>SizeOfImage</li>
+</ol>
+<p>加载PE文件到内存时，SizeOfImage指定了PE Image在虚拟内存中所占空间的大小。一般而言，文件的大小与加载到内存中的大小是不同的。</p>
+<ol>
+<li>SizeOfHeader</li>
+</ol>
+<p>这个成员指出了整个PE头的大小，该值也必须是FileAlignment的整数倍。第一节区所在位置与SizeOfHeader距文件开始偏移的量相同。</p>
+<ol>
+<li>Subsystem</li>
+</ol>
+<p>该Subsystem值用来区分系统驱动文件（*.sys）与普通的可执行文件（*.exe,*.dll）。Subsystem成员可拥有的值如下表所示：</p>
+<table>
+<thead>
+<tr>
+<th>值</th>
+<th>含义</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Driver文件</td>
+<td>系统驱动（如：ntfs.sys）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>GUI文件</td>
+<td>窗口应用程序（如：notepad.exe）</td>
+</tr>
+<tr>
+<td>3</td>
+<td>CUI文件</td>
+<td>控制台应用程序（如:cmd.exe）</td>
+</tr>
+</tbody>
+</table>
+<ol>
+<li>NumberOfRvaAndSize</li>
+</ol>
+<p>这个成员用来指定DataDirectory（IMAGE_OPTIONAL_HEADER32结构体的最后一个成员）数组的个数。虽然结构体定义中明确指出了数组个数为IMAGE_NUMBEROF_DIRECTORY_ENTRIES(16)，但是PE装载器通过查看NumberOfRvaAndSizes值来识别数组的大小，换言之，数组大小也可能不是16.</p>
+<ol>
+<li>DataDirectory</li>
+</ol>
+<p>它是由IMAGE_DATA_DIRECTORY结构体组成的数组，数组的每项都有被定义的值。下面列出了各个数组项：</p>
+<div class="hlcode"><pre><span class="n">DataDirectory</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">EXPORT</span> <span class="n">Directory</span>
+<span class="n">DataDirectory</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">IMPORT</span> <span class="n">Directory</span>
+<span class="n">DataDirectory</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">RESOURCE</span> <span class="n">Directory</span>
+<span class="c1">//......</span>
+<span class="n">DataDirectory</span><span class="p">[</span><span class="mi">9</span><span class="p">]</span> <span class="o">=</span> <span class="n">TLS</span> <span class="n">Directory</span>
+<span class="c1">//......</span>
+<span class="n">DataDirectory</span><span class="p">[</span><span class="n">F</span><span class="p">]</span> <span class="o">=</span> <span class="n">Reserved</span> <span class="n">Directory</span>
+</pre></div>
+
+
+<p>将此处所说的Directory想成某个结构体数组即可。重点关注EXPORT/IMPORT/RESOURCE/TLS Directory。EXPORT/IMPORT Directory是PE头中非常重要的部分。</p>
+<h4 id="_1">节区头</h4>
+<p>这一头部定义了各节区属性。原文作者认为把PE文件创建成多个节区结构的好处是保证程序的安全性。</p>
+<p>假如向字符串data写数据时，由于某个原因导致导致溢出（输入超过缓存区大小时），那么其下的code(指令)就会被覆盖，应用程序就会崩溃。因此PE文件格式的设计者们决定把具有相似属性的数据同一保存在一个称之为“节区”的地方，然后需要把各节区属性记录在节区头中（节区属性中有文件/内存的起始位置、大小、访问权限等）。</p>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>访问权限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>code</td>
+<td>执行，读取权限</td>
+</tr>
+<tr>
+<td>data</td>
+<td>非执行，读写权限</td>
+</tr>
+<tr>
+<td>resource</td>
+<td>非执行，读取权限</td>
+</tr>
+</tbody>
+</table>
+<p>IMAGE_SECTION_HEADER
+节区头是由IMAGE_SECTION_HEADER结构体组成的数组，每个结构体对应一个节区。</p>
+<div class="hlcode"><pre><span class="cp">#define IMAGE_SIZEOF_SHORT_NAME</span>
+<span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_SECTION_HEADER</span> <span class="p">{</span>
+    <span class="n">BYTE</span> <span class="n">Name</span><span class="p">[</span><span class="n">IMAGE_SIZEOF_SHORT_NAME</span><span class="p">];</span>
+    <span class="k">union</span> <span class="p">{</span>
+        <span class="n">DWORD</span> <span class="n">PhysicalAddress</span><span class="p">;</span>
+        <span class="n">DWORD</span> <span class="n">VirtualSize</span><span class="p">;</span>
+    <span class="p">}</span> <span class="n">Misc</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">VirtualAddress</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">SizeOfRawData</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">PointerToRawData</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">PointerToRelocations</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">PointerToLinenumbers</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">NumberOfRelocations</span><span class="p">;</span>
+    <span class="n">WORD</span> <span class="n">NumberOfLinenumbers</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">Characteristics</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">IMAGE_SECTION_HEADER</span><span class="p">,</span> <span class="o">*</span><span class="n">PIMAGE_SECTION_HEADER</span><span class="p">;</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<p>重要成员有：</p>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VirtualSize</td>
+<td>内存中节区所占大小</td>
+</tr>
+<tr>
+<td>VirtualAddress</td>
+<td>内存中节区起始地址(RVA)</td>
+</tr>
+<tr>
+<td>SizeOfRawData</td>
+<td>磁盘文件中节区所占大小</td>
+</tr>
+<tr>
+<td>PointerToRawData</td>
+<td>磁盘文件中节区起始地址</td>
+</tr>
+<tr>
+<td>Characteristics</td>
+<td>节区属性(bit OR)</td>
+</tr>
+</tbody>
+</table>
+<p>VirtualAddress与PointerToRawData不带有任何值，分别由（定义在IMAGE_OPTIONAL_HEADER32中的）SectionAlignment与FileAlignment确定。</p>
+<p>VirtualSize与SizeOfRawData一般具有不同的值，即磁盘文件中节区的大小与加载到内存中的节区大小是不同的。
+Characteristics由下列可能值组合(bit OR)而成：</p>
+<div class="hlcode"><pre><span class="cp">#define IMAGE_SCN_CNT_CODE      0x00000020 </span><span class="c1">//Section contains code.</span>
+<span class="cp">#define IMAGE_SCN_CNT_INITIALIZED  0x00000040 </span><span class="c1">//Section contains initialized data.</span>
+<span class="cp">#define IMAGE_SCN_CNT_UNINITIALIZED 0x00000080 </span><span class="c1">//Section contains uninitialized data.</span>
+<span class="cp">#define IMAGE_SCN_MEM_EXECUTE   0x20000000 </span><span class="c1">//Section is executable.</span>
+<span class="cp">#define IMAGE_SCN_MEM_READ      0x40000000 </span><span class="c1">//Section is readable.</span>
+<span class="cp">#define IMAGE_SCN_MEM_WRITE     0x80000000 </span><span class="c1">//Section is writable.</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<p>最后是Name字段，Name成员不像C语言中的字符串一样以NULL结束，并且没有“必须使用ASCII值”的限制。PE规范未明确规定节区的Name，所以可以向其放入任何值，甚至可以填充NULL值。所以节区的Name仅供参考，不能保证其百分之百地被用作某种信息（数据节区的名称也可叫做.code）。</p>
+<p>Tips:讲解PE文件时经常出现“映像”（Image）这一术语。磁盘文件中PE与内存中的PE具有不同形态。</p>
+<h2 id="rva-to-raw">RVA to RAW</h2>
+    </div>
+
+        </div>
+        <div id="footer">
+              <p>
+                Copyright © 2012-2016 Ender.
+                Powered by <a href="http://simiki.org/" target="_blank">Simiki</a>.
+                Theme by <a href="https://github.com/tankywoo/yasimple" target="_blank">YASimple</a>.
+              </p>
+                <p>Last Update 2016-10-04 22:21:11</p>
+        </div>
+    </body>
+</html>
