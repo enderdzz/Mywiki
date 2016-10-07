@@ -52,7 +52,7 @@
 </ul>
 </div>
 <p>本文摘录于：《逆向工程核心原理》</p>
-<p>PE -&gt; Portable Executable  (<strong>未完待续</strong>) </p>
+<p>PE -&gt; Portable Executable  (<strong>未完待续</strong>)</p>
 <p>PE文件是Windows操作系统下使用的可执行文件格式。
 它是微软在UNIX平台的COFF(common object file format, 通用对象文件格式)基础上制作而成的。这种文件仅使用于Win系列下。
 PE文件是指32位的可执行文件，也称PE32, 64位的可执行文件称为PE+或PE32+, 是PE(PE32)文件的一种扩展形式。</p>
@@ -139,7 +139,7 @@ PE头与各节区的尾部存在一个区域，称为NULL填充</p>
 <p>该结构体必须知道2个重要的成员：</p>
 <p>e_magic（DOS签名）,e_lfanew（指示NT头的偏移（根据不同文件拥有可变值））</p>
 <p>|Offset(h)| 00 | 01 | 02 | 03 | 04 05 06...........0F|<br>
-00000000    4D | 5A | 90 |</p>
+00000000  | 4D | 5A | 90 |</p>
 <h4 id="0x02-dosstub">0x02 DOS存根（stub）</h4>
 <p>该项为可选项，且大小不固定，它是由代码和数据混合而成。</p>
 <p>文件偏移在40-4D区域为16位汇编指令，32位WindowsOS不会执行该指令（由于已经识别为PE文件，所以完全忽视该代码）</p>
@@ -272,36 +272,22 @@ IMAGE_OPTIONAL_HEADER32是PE头结构体中最大的。</p>
 
 
 <p>在该结构体中我们需要注意如下成员(这些值是文件运行必需的，设置错误将导致文件无法正常运行):</p>
-<ol>
-<li>Magic</li>
-</ol>
+<p>1、 Magic</p>
 <p>为IMAGE_OPTIONAL_HEADER32结构体时，Magic码为10B；为IMAGE_OPTIONAL_HEADER64结构体时，Magic码为20B。</p>
-<ol>
-<li>AddressOfEntryPoint</li>
-</ol>
+<p>2、 AddressOfEntryPoint</p>
 <p>AddressOfEntryPoint持有EP的RVA值。该值指出了程序最先执行的代码起始地址，<strong>Very Important！！</strong></p>
-<ol>
-<li>ImageBase</li>
-</ol>
+<p>3、 ImageBase</p>
 <p>进程虚拟内存的范围为0~FFFFFFFF(32位系统)。PE文件被加载在如此大的内存中时，ImageBase指出文件的优先装入地址。</p>
 <p>EXE，DLL文件被装载到用户内存的0~7FFFFFFF中，SYS文件被载入到内核内存中80000000~FFFFFFFF。</p>
 <p>一般而言，使用开发工具(VB/VC++/Delphi)创建好EXE文件后，其ImageBase的值为00400000，DLL文件的ImageBase值为10000000(当然也可以指定为其他值)，执行PE文件时，PE装载器先创建进程，再将文件载入内存，然后把EIP寄存器的值设为ImageBase+AddressOfEntryPoint.</p>
-<ol>
-<li>SectionAlignment, FileAlignment</li>
-</ol>
+<p>4、 SectionAlignment, FileAlignment</p>
 <p>PE文件的Body部分划分为若干节区，这些节存储着不同类别的数据。FileAlignment指定了节区在磁盘文件中的最小单位，而SectionAlignment则指定了节区在内存中的最小单位(一个文件中，FileAlignment与SectionAlignment的值可能相同，也可能不同)。磁盘文件或内存的节区大小必定为FileAlignment或SectionAlig
 nment值的整数倍。</p>
-<ol>
-<li>SizeOfImage</li>
-</ol>
+<p>5、 SizeOfImage</p>
 <p>加载PE文件到内存时，SizeOfImage指定了PE Image在虚拟内存中所占空间的大小。一般而言，文件的大小与加载到内存中的大小是不同的。</p>
-<ol>
-<li>SizeOfHeader</li>
-</ol>
+<p>6、 SizeOfHeader</p>
 <p>这个成员指出了整个PE头的大小，该值也必须是FileAlignment的整数倍。第一节区所在位置与SizeOfHeader距文件开始偏移的量相同。</p>
-<ol>
-<li>Subsystem</li>
-</ol>
+<p>7、 Subsystem</p>
 <p>该Subsystem值用来区分系统驱动文件（*.sys）与普通的可执行文件（*.exe,*.dll）。Subsystem成员可拥有的值如下表所示：</p>
 <table>
 <thead>
@@ -329,13 +315,9 @@ nment值的整数倍。</p>
 </tr>
 </tbody>
 </table>
-<ol>
-<li>NumberOfRvaAndSize</li>
-</ol>
+<p>8、 NumberOfRvaAndSize</p>
 <p>这个成员用来指定DataDirectory（IMAGE_OPTIONAL_HEADER32结构体的最后一个成员）数组的个数。虽然结构体定义中明确指出了数组个数为IMAGE_NUMBEROF_DIRECTORY_ENTRIES(16)，但是PE装载器通过查看NumberOfRvaAndSizes值来识别数组的大小，换言之，数组大小也可能不是16.</p>
-<ol>
-<li>DataDirectory</li>
-</ol>
+<p>9、 DataDirectory</p>
 <p>它是由IMAGE_DATA_DIRECTORY结构体组成的数组，数组的每项都有被定义的值。下面列出了各个数组项：</p>
 <div class="hlcode"><pre><span class="n">DataDirectory</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">EXPORT</span> <span class="n">Directory</span>
 <span class="n">DataDirectory</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">IMPORT</span> <span class="n">Directory</span>
@@ -451,7 +433,7 @@ Characteristics由下列可能值组合(bit OR)而成：</p>
                 Powered by <a href="http://simiki.org/" target="_blank">Simiki</a>.
                 Theme by <a href="https://github.com/tankywoo/yasimple" target="_blank">YASimple</a>.
               </p>
-                <p>Last Update 2016-10-04 22:21:11</p>
+                <p>Last Update 2016-10-07 23:37:33</p>
         </div>
     </body>
 </html>
