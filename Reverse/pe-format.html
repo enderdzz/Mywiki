@@ -45,7 +45,7 @@
 <li><a href="#0x01-dos">0x01 DOS头</a></li>
 <li><a href="#0x02-dosstub">0x02 DOS存根（stub）</a></li>
 <li><a href="#0x03-ntimage_nt_headers">0x03 NT头（IMAGE_NT_HEADERS）</a></li>
-<li><a href="#_1">节区头</a></li>
+<li><a href="#0x04">0x04 节区头</a></li>
 </ul>
 </li>
 <li><a href="#rva-to-raw">RVA to RAW</a></li>
@@ -335,7 +335,7 @@ nment值的整数倍。</p>
 
 
 <p>将此处所说的Directory想成某个结构体数组即可。重点关注EXPORT/IMPORT/RESOURCE/TLS Directory。EXPORT/IMPORT Directory是PE头中非常重要的部分。</p>
-<h4 id="_1">节区头</h4>
+<h4 id="0x04">0x04 节区头</h4>
 <p>这一头部定义了各节区属性。原文作者认为把PE文件创建成多个节区结构的好处是保证程序的安全性。</p>
 <p>假如向字符串data写数据时，由于某个原因导致导致溢出（输入超过缓存区大小时），那么其下的code(指令)就会被覆盖，应用程序就会崩溃。因此PE文件格式的设计者们决定把具有相似属性的数据同一保存在一个称之为“节区”的地方，然后需要把各节区属性记录在节区头中（节区属性中有文件/内存的起始位置、大小、访问权限等）。</p>
 <table>
@@ -521,7 +521,7 @@ INT与IAT的大小应相同</p>
                 Powered by <a href="http://simiki.org/" target="_blank">Simiki</a>.
                 Theme by <a href="https://github.com/tankywoo/yasimple" target="_blank">YASimple</a>.
               </p>
-                <p>Last Update 2016-10-09 23:36:46</p>
+                <p>Last Update 2016-10-09 23:43:18</p>
         </div>
     </body>
 </html>
