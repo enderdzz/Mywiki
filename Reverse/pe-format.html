@@ -49,6 +49,11 @@
 </ul>
 </li>
 <li><a href="#rva-to-raw">RVA to RAW</a></li>
+<li><a href="#iatimport-address-table">IAT(Import Address Table，导入地址表)</a><ul>
+<li><a href="#dlldynamic-linked-library">DLL(Dynamic Linked Library)</a></li>
+<li><a href="#image_import_descriptor">IMAGE_IMPORT_DESCRIPTOR</a></li>
+</ul>
+</li>
 </ul>
 </div>
 <p>本文摘录于：《逆向工程核心原理》</p>
@@ -424,6 +429,89 @@ Characteristics由下列可能值组合(bit OR)而成：</p>
 <p>最后是Name字段，Name成员不像C语言中的字符串一样以NULL结束，并且没有“必须使用ASCII值”的限制。PE规范未明确规定节区的Name，所以可以向其放入任何值，甚至可以填充NULL值。所以节区的Name仅供参考，不能保证其百分之百地被用作某种信息（数据节区的名称也可叫做.code）。</p>
 <p>Tips:讲解PE文件时经常出现“映像”（Image）这一术语。磁盘文件中PE与内存中的PE具有不同形态。</p>
 <h2 id="rva-to-raw">RVA to RAW</h2>
+<p>PE文件加载到内存时，每个节区都要能准确完成内存地址与文件偏移的映射，这种映射一般称为RVA ot RAW.
+方法是：</p>
+<p>1）查找RVA所在的节区；</p>
+<p>2）使用简单的公式计算文件偏移（RAW）</p>
+<p>$$RAW - PointerToRawData = RVA - VirtualAddress$$
+$$RAW = RVA - VirtualAdress + PointerToRawData$$</p>
+<p>但是由于有时某些节区的VirtualSize值比SizeOfRawData值大，此时若再计算Raw可能超出该节区的范围，处于无法定义的状态。</p>
+<p>至于为什么VirtualSize &amp; SizeOfRawData两个值不一定相等后续会讲到...</p>
+<h2 id="iatimport-address-table">IAT(Import Address Table，导入地址表)</h2>
+<p>IAT的内容与Win OS的核心进程、内存、DLL结构等有关。</p>
+<p>简言之，IAT是一种表格，用来记录程序正在使用哪些库中的哪些函数。</p>
+<h4 id="dlldynamic-linked-library">DLL(Dynamic Linked Library)</h4>
+<p>它支撑起了整个WinOS大厦。</p>
+<p>16位的DOS时代不存在DLL这一概念，只有“库”的说法。</p>
+<p>到了32位机后才引入这一概念，描述如下：</p>
+<ol>
+<li>不要把库包含在程序中，单独组成DLL文件，需要时调用即可。</li>
+<li>内存映射技术使加载后的DLL代码、资源在多个进程中实现共享。</li>
+<li>更新库时只要替换相关DLL文件即可，简便易行。</li>
+</ol>
+<p>加载DLL的方式有两种：一种是“显式链接”（Explicit Linking），程序使用DLL时加载，使用完毕后释放内存；另一种是“隐式链接”（Implicit Linking），程序开始时即一同加载DLL，程序终止时再释放占用的内存。IAT提供的机制即与隐式链接有关。使用OD可以查看PE文件中的IAT. e.g. kernel32.CreateFileW()便在kernel32.dll中</p>
+<p>调用CreateFileW()函数时并非直接调用，而是通过获取01001104（<code>CALL DWORD PTR DS:[1001104]</code>）地址处的值来实现（所有API调用均采用这种方式）。</p>
+<p>地址01001104是notepad.exe中<code>.text</code>节区的内存区域（更确切来说是IAT的内存区域）。01001104地址的值为7C8107F0，而7C8107F0地址即是加载到notepad.exe进程内存中的CreateFileW()函数的地址。。。。</p>
+<p>那为何不直接<code>CALL 7C8107F0</code>呢？
+In fact，notepad.exe程序的制作者编译程序时，并不知道该notepad.exe程序要运行在哪种Win（9X、2K、XP、Vista、7）、哪种语言（ENG、JPN、KOR）、哪种服务包（Service Pack）下。为了确保在所有环境中都能正常的调用CreateFileW()函数，编译器准备了要保存CreateFileW()函数实际地址的位置(01001104)，并仅记下<code>CALL DWORD PTR DS:[1001104]</code>形式的指令。执行文件时，PE装载器将CreateFileW()函数的地址写到01001104位置。</p>
+<p>编译器不用<code>CALL 7C8107F0</code>语句的另一个原因在于DLL重定位。DLL文件的ImageBase值一般为10000000。比如某个程序使用a.dll与b.dll时，PE装载器先把a.dll装载到内存的10000000（ImageBase）处，然后尝试把b.dll也装载到此处，但是由于该地址处已经装载了a.dll所以PE装载器查找其他空白的内存空间(e.g. 3E000000)，进行装载。</p>
+<p>这就是所谓的DLL重定位，它使我们无法对实际地址硬编码。另一个原因在于，PE头中表示地址时不使用VA，而是RVA。
+实际操作中无法保证DLL一定会被加载到PE头内指定的ImageBase处，但是EXE文件(生成进程的主体)却能准确加载到自身的ImageBase中，因为它拥有自己的虚拟空间。</p>
+<h4 id="image_import_descriptor">IMAGE_IMPORT_DESCRIPTOR</h4>
+<p>这一结构体中记录着PE文件要导入哪些库文件。</p>
+<blockquote>
+<p>Import:导入，向库提供服务（函数）。<br>
+Export：导出，从库向其他PE文件提供服务（函数）。</p>
+</blockquote>
+<div class="hlcode"><pre><span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_IMPORT_DESCRIPOTR</span> <span class="p">{</span>
+    <span class="k">union</span> <span class="p">{</span>
+        <span class="n">DWORD</span> <span class="n">Characteristics</span><span class="p">;</span>
+        <span class="n">DWORD</span> <span class="n">OriginalFirstThunk</span><span class="p">;</span> <span class="c1">//INT(Import Name Table) address(RVA)</span>
+    <span class="p">};</span>
+    <span class="n">DWORD</span> <span class="n">TimeDateStamp</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">ForwarderChain</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">Name</span><span class="p">;</span> <span class="c1">//library name string address (RVA)</span>
+    <span class="n">DWORD</span> <span class="n">FirstThunk</span><span class="p">;</span> <span class="c1">//IAT(Import Address Table) address(RVA)</span>
+<span class="p">}</span> <span class="n">IMAGE_IMPORT_DESCRIPOTR</span><span class="p">;</span>
+
+<span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_IMPORT_BY_NAME</span> <span class="p">{</span>
+    <span class="n">WORD</span> <span class="n">Hint</span><span class="p">;</span> <span class="c1">//ordinal</span>
+    <span class="n">BYTE</span> <span class="n">Name</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span> <span class="c1">//function name string</span>
+<span class="p">}</span> <span class="n">IMAGE_IMPORT_BY_NAME</span><span class="p">,</span> <span class="o">*</span><span class="n">PIMAGE_IMPORT_BY_NAME</span><span class="p">;</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<p>执行一个普通程序时往往需要导入多个库，导入多少个库就存在多少个IMAGE_IMPORT_DESCRIPOTR结构体，这些结构体形成了数组，且结构体数组最后以NULL结构体结束。</p>
+<p>该结构体中重要成员如下:</p>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OriginalFirstThunk</td>
+<td>INT的地址(RVA)</td>
+</tr>
+<tr>
+<td>Name</td>
+<td>库名称字符串的地址(RVA)</td>
+</tr>
+<tr>
+<td>FirstThunk</td>
+<td>IAT地址(RVA)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Tips:PE头中提到的“Table”即指数组。<br>
+INT与IAT是长整形（4个字节数据类型）数组，以NULL结束（未另外明确指出大小）<br>
+INT中各元素的值为IMAGE_IMPORT_BY_NAME结构体指针（有时IAT也拥有相同的值）<br>
+INT与IAT的大小应相同</p>
+</blockquote>
     </div>
 
         </div>
@@ -433,7 +521,7 @@ Characteristics由下列可能值组合(bit OR)而成：</p>
                 Powered by <a href="http://simiki.org/" target="_blank">Simiki</a>.
                 Theme by <a href="https://github.com/tankywoo/yasimple" target="_blank">YASimple</a>.
               </p>
-                <p>Last Update 2016-10-07 23:37:33</p>
+                <p>Last Update 2016-10-09 23:36:46</p>
         </div>
     </body>
 </html>
