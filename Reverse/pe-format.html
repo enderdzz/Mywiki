@@ -54,10 +54,14 @@
 <li><a href="#image_import_descriptor">IMAGE_IMPORT_DESCRIPTOR</a></li>
 </ul>
 </li>
+<li><a href="#eatexport-address-table">EAT(Export Address Table，导出地址表)</a><ul>
+<li><a href="#image_export_directory">IMAGE_EXPORT_DIRECTORY</a></li>
+</ul>
+</li>
 </ul>
 </div>
 <p>本文摘录于：《逆向工程核心原理》</p>
-<p>PE -&gt; Portable Executable  (<strong>未完待续</strong>)</p>
+<p>PE -&gt; Portable Executable  </p>
 <p>PE文件是Windows操作系统下使用的可执行文件格式。
 它是微软在UNIX平台的COFF(common object file format, 通用对象文件格式)基础上制作而成的。这种文件仅使用于Win系列下。
 PE文件是指32位的可执行文件，也称PE32, 64位的可执行文件称为PE+或PE32+, 是PE(PE32)文件的一种扩展形式。</p>
@@ -512,6 +516,59 @@ INT与IAT是长整形（4个字节数据类型）数组，以NULL结束（未另
 INT中各元素的值为IMAGE_IMPORT_BY_NAME结构体指针（有时IAT也拥有相同的值）<br>
 INT与IAT的大小应相同</p>
 </blockquote>
+<p>PE装载器把导入函数输入到IAT的顺序：</p>
+<ol>
+<li>读取IID的Name成员，获取库名称字符串（"kernel32.dll"）;</li>
+<li>装载相应的库（-&gt;LoadLibrary("kernel32.dll")）;</li>
+<li>读取IID的OriginalFirstThunk成员，获取INT地址;</li>
+<li>逐一读取INT中数组的值，获取相应IMAGE_IMPORT_BY_NAME地址（RVA）;</li>
+<li>使用IMAGE_IMPORT_BY_NAME的Hint(Ordinal)或Name项，获取相应函数的起始地址;</li>
+<li>读取IID的FirstThunk(IAT)成员，获得IAT地址;</li>
+<li>将上面获得的函数地址输入相应IAT数组值;</li>
+<li>重复以上步骤4~7，直到INT结束（遇到NULL时）</li>
+</ol>
+<p>IMAGE_IMPORT_DESCRIPOTR结构体数组存放于PE体中，但是查询其位置的信息却在PE头中，IMAGE_OPTIONAL_HEADER32.DataDirectory[1].VirtualAddress的值即是该结构体数组的起始地址(RVA值)。IMAGE_IMPORT_DESCRIPOTR结构体数组也被称为IMPORT Directory Table。</p>
+<p>这一块内容由于笔者能力较难以文字形式表述出来，上手实践绝对是一个不错的选择，在实践的过程中，注意之前讲到的<code>RVA-&gt;RAW</code>,尝试一下如何找到以下四个变量存储的内容，分别是</p>
+<ul>
+<li><code>Name</code></li>
+<li><code>OriginalFirstThunk - INT</code></li>
+<li><code>IMAGE_IMPORT_BY_NAME</code></li>
+<li><code>FirstThunk - IAT</code></li>
+</ul>
+<blockquote>
+<p>微软在制作服务包过程中重建相关系统文件，此时会硬编入准确地址（普通的DLL实际地址不会被硬编码到IAT中，通常带有与INT相同的值）
+另外，普通DLL文件的ImageBase为10000000，所以经常会发生DLL重定位。但是Windows系统DLL文件（kernel32/user32/gdi32等）拥有自身固有的ImageBase，不会出现DLL重定位。</p>
+</blockquote>
+<h2 id="eatexport-address-table">EAT(Export Address Table，导出地址表)</h2>
+<p>EAT是一种核心的机制，它使不同的应用程序可以调用库文件中提供的函数。也就是说，只有通过EAT才能准确求得从相应库中导出函数的起始地址，而且PE文件中仅有一个用来说明库EAT的IMAGE_EXPORT_DIRECTORY结构体，但是用来说明IAT的IMAGE_IMPORT_DESCRIPTOR结构体以数组形式存在，且拥有多个成员。</p>
+<p><code>&amp;IMAGE_EXPORT_DIRECTORY &lt;=&gt; IMAGE_OPTIONAL_HEADER32.DataDirectory[0].VA</code></p>
+<h4 id="image_export_directory">IMAGE_EXPORT_DIRECTORY</h4>
+<div class="hlcode"><pre><span class="k">typedef</span> <span class="k">struct</span> <span class="n">_IMAGE_EXPORT_DIRECTORY</span> <span class="p">{</span>
+    <span class="n">DWORD</span> <span class="n">Characteristics</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">TimeDateStamp</span><span class="p">;</span>
+    <span class="n">WORD</span>  <span class="n">MajorVersion</span><span class="p">;</span>
+    <span class="n">WORD</span>  <span class="n">MinorVersion</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">Name</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">Base</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">NumberOfFunctions</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">NumberOfNames</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">AddressOfFunctions</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">AddressOfNames</span><span class="p">;</span>
+    <span class="n">DWORD</span> <span class="n">AddressOfNameOrdinals</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">IMAGE_EXPORT_DIRECTORY</span><span class="p">,</span> <span class="o">*</span><span class="n">PIMAGE_EXPORT_DIRECTORY</span><span class="p">;</span>
+<span class="c1">// 出处：MicroSoft Platform SDK - winnt.h</span>
+</pre></div>
+
+
+<p>从库中获得函数地址的API为GetProcAddress()函数。该API引用EAT来获取指定API的地址。GetProcAddress() API拥有函数名称，下面讲解它如何获取函数地址。理解了这一过程，就等于征服了EAT。</p>
+<ol>
+<li>利用AddressOfNames 成员转到“函数名称数组”。</li>
+<li>“函数名称数组”中存储着字符串地址，通过比较(strcmp)字符串，查找指定的函数名称(此时数组的索引称为name_index)。</li>
+<li>利用AddressOfNameOrdinals成员的，转到ordinal数组。</li>
+<li>在ordinal数组中通过name_index查找相应ordinal值。</li>
+<li>利用AddressOfFunctions成员转到“函数地址数组”（EAT）。</li>
+<li>在“函数地址数组”中将刚刚求得的ordinal用作数组索引，获得指定函数的起始地址。</li>
+</ol>
     </div>
 
         </div>
@@ -521,7 +578,7 @@ INT与IAT的大小应相同</p>
                 Powered by <a href="http://simiki.org/" target="_blank">Simiki</a>.
                 Theme by <a href="https://github.com/tankywoo/yasimple" target="_blank">YASimple</a>.
               </p>
-                <p>Last Update 2016-10-09 23:43:18</p>
+                <p>Last Update 2016-10-25 21:01:53</p>
         </div>
     </body>
 </html>
