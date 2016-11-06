@@ -8,7 +8,7 @@ date: 2016-10-04 22:03
 
 本文摘录于：《逆向工程核心原理》
 
-PE -> Portable Executable  
+PE -> Portable Executable  (**未完待续**)
 
 PE文件是Windows操作系统下使用的可执行文件格式。
 它是微软在UNIX平台的COFF(common object file format, 通用对象文件格式)基础上制作而成的。这种文件仅使用于Win系列下。
@@ -509,4 +509,3 @@ typedef struct _IMAGE_EXPORT_DIRECTORY {
 4. 在ordinal数组中通过name_index查找相应ordinal值。
 5. 利用AddressOfFunctions成员转到“函数地址数组”（EAT）。
 6. 在“函数地址数组”中将刚刚求得的ordinal用作数组索引，获得指定函数的起始地址。
-
