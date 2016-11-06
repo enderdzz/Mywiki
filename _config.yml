@@ -6,10 +6,11 @@ title: Ender | Wiki
 keywords: wiki, Linux
 description: 
 author: Ender
-
+root: /mywiki
 theme: yasimple
 
 deploy: 
     - type: git
       remote: origin
       branch: gh-pages
+          
